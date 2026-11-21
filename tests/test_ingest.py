@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from ingest.make_strip_video import TILE, write_camera
-from ingest.run_multicam import percentile, process_loop
+from ingest.run_multicam import percentile, process_loop, wait_until_connected
 from ingest.stream_reader import StreamReader
 from ingest.stream_videos import ffmpeg_cmd
 
@@ -65,3 +65,12 @@ def test_reader_survives_unreachable_source_and_stops():
     reader.stop()
     reader.join(timeout=8)
     assert not reader.is_alive()
+
+
+def test_wait_until_connected():
+    class R:
+        def __init__(self, connected):
+            self.stats = type("S", (), {"connected": connected})            ()
+
+    assert wait_until_connected([R(True), R(True)], timeout=0.5)
+    assert not wait_until_connected([R(True), R(False)],            timeout=0.3)

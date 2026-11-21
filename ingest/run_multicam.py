@@ -31,6 +31,14 @@ def percentile(values: list[float], q: float) -> float:
     s = sorted(values)
     return s[min(len(s) - 1, int(round(q * (len(s) - 1))))]
 
+def wait_until_connected(readers, timeout: float = 30.0, poll: float = 0.1) -> bool:
+      """Block until every camera has a live stream (or timeout).       Returns True if all connected."""
+      deadline = time.monotonic() + timeout
+      while time.monotonic() < deadline:
+        if all(r.stats.connected for r in readers):
+            return True
+        time.sleep(poll)
+      return False
 
 def process_loop(readers, detector, seconds: float):
     """Round-robin over cameras; always take each camera's newest frame."""
@@ -102,6 +110,8 @@ def main() -> None:
                for i in range(1, args.cameras + 1)]
     for r in readers:
         r.start()
+    if not wait_until_connected(readers):
+           log.warning("not all cameras connected after 30s -            measuring anyway")
     try:
         rows = process_loop(readers, detector, args.seconds)
     finally:

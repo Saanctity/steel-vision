@@ -1,0 +1,5 @@
+camera,proc_fps,received,dropped,reconnects,detections,lat_med_ms,lat_p95_ms
+cam1,2.2,1687,1371,0,297,136.3,169.9
+cam2,2.2,1638,1366,0,299,135.0,153.8
+cam3,2.2,1537,1366,0,289,134.5,159.5
+cam4,2.2,1587,1366,0,296,137.1,162.0
