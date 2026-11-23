@@ -16,7 +16,8 @@ def test_counts_each_id_once_when_moving_up_through_line():
     c.update(3, [(1, 50, 70)])
     c.update(4, [(1, 50, 120)])  # moves back down...
     c.update(5, [(1, 50, 90)])   # ...and crosses again: must NOT recount
-    assert c.events == [2]
+    assert len(c.events) == 1
+    assert abs(c.events[0] - (1 + 20 / 30)) < 1e-9   # interpolated between frames 1 and 2
 
 
 def test_ignores_downward_motion_and_new_ids_without_history():
@@ -97,3 +98,10 @@ def test_score_cameras_aggregates_over_cameras_and_tolerances():
     assert res["by_tol"][100] == (3, 0, 0)    # loose enough to match the stray count
     assert res["per_camera"]["cam2"] == (2, 2, 1, 1, 1)
     assert res["per_class"] == {"a": [1, 1], "b": [2, 1]}
+
+
+def test_crossing_time_is_interpolated_not_delayed_by_stride():
+    c = LineCounter(line_y=100)
+    c.update(0, [(1, 0, 150)])
+    c.update(10, [(1, 0, 50)])       # seen again 10 frames later, well past the line
+    assert c.events == [5.0]         # it crossed halfway between the two sightings

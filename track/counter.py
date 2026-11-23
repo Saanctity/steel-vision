@@ -8,22 +8,30 @@ from __future__ import annotations
 
 
 class LineCounter:
-    """Counts each track ID once, when its centre crosses line_y moving upward."""
+    """Counts each track ID once, when its centre crosses line_y moving upward.
+
+    The crossing time is interpolated between the last sighting above/below the
+    line, so counts are not delayed by the sampling stride.
+    """
 
     def __init__(self, line_y: float):
         self.line_y = line_y
-        self._last_y: dict[int, float] = {}
+        self._last: dict[int, tuple[int, float]] = {}  # track id -> (frame_idx, cy)
         self._counted: set[int] = set()
-        self.events: list[int] = []  # frame index at which each count happened
+        self.events: list[float] = []  # (interpolated) frame index of each count
 
     def update(self, frame_idx: int, tracks) -> None:
         """tracks: iterable of (track_id, cx, cy) for this frame."""
         for tid, _cx, cy in tracks:
-            prev = self._last_y.get(tid)
-            self._last_y[tid] = cy
-            if prev is not None and tid not in self._counted and prev > self.line_y >= cy:
+            prev = self._last.get(tid)
+            self._last[tid] = (frame_idx, cy)
+            if prev is None or tid in self._counted:
+                continue
+            prev_idx, prev_y = prev
+            if prev_y > self.line_y >= cy:
+                frac = (prev_y - self.line_y) / (prev_y - cy)
                 self._counted.add(tid)
-                self.events.append(frame_idx)
+                self.events.append(prev_idx + frac * (frame_idx - prev_idx))
 
 
 def truth_events_cls(defects: list[dict], line_y: float, speed: float, n_frames: int) -> list[tuple[float, str]]:

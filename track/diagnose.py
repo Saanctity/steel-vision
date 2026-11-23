@@ -64,12 +64,13 @@ def merge(a: dict, b: dict) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stride", type=int, default=4)
+    ap.add_argument("--suffix", default="", help='"" for bytetrack runs, "_speed" for --tracker speed')
     ap.add_argument("--videos", type=Path, default=Path("videos"))
     ap.add_argument("--line-y", type=float, default=100.0)
     ap.add_argument("--tol", type=float, default=30.0)
     args = ap.parse_args()
 
-    raw = json.loads((OUT / f"tracking_events_stride{args.stride}.json").read_text())
+    raw = json.loads((OUT / f"tracking_events_stride{args.stride}{args.suffix}.json").read_text())
     total = None
     for cam, d in raw.items():
         meta = json.loads((args.videos / f"{cam}.json").read_text())

@@ -21,6 +21,7 @@ import cv2
 
 from detect.eval_compare import prf
 from track.counter import LineCounter, score_cameras, truth_events_cls
+from track.speed_tracker import SpeedTracker
 
 log = logging.getLogger("track.run_tracking")
 OUT = Path("outputs")
@@ -61,6 +62,18 @@ def make_yolo_tracker(weights: str, imgsz: int, conf: float):
     return track_fn
 
 
+def make_speed_tracker(weights: str, imgsz: int, conf: float, speed: float):
+    """Plain YOLO detection + SpeedTracker (uses the known belt speed to predict motion)."""
+    from ultralytics import YOLO
+    model = YOLO(weights, task="detect")
+    tracker = SpeedTracker(speed)
+
+    def track_fn(frame, idx):
+        r = model.predict(frame, imgsz=imgsz, conf=conf, device="cpu", verbose=False)[0]
+        return tracker.update(idx, r.boxes.xyxy.tolist())
+    return track_fn
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cameras", type=int, default=4)
@@ -69,6 +82,10 @@ def main() -> None:
     ap.add_argument("--imgsz", type=int, default=320)
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--stride", type=int, default=4, help="process every Nth frame")
+    ap.add_argument("--tracker", choices=["bytetrack", "speed"], default="bytetrack",
+                    help="bytetrack = overlap-based; speed = uses the known belt speed")
+    ap.add_argument("--speed-error", type=float, default=0.0,
+                    help="give the speed tracker a wrong belt speed, e.g. 0.1 = 10%% too fast")
     ap.add_argument("--line-y", type=float, default=100.0)
     ap.add_argument("--tol", type=float, default=8.0, help="main matching tolerance in frames")
     args = ap.parse_args()
@@ -79,21 +96,27 @@ def main() -> None:
     for cam in range(1, args.cameras + 1):
         video = args.videos / f"cam{cam}.mp4"
         meta = json.loads((args.videos / f"cam{cam}.json").read_text())
-        track_fn = make_yolo_tracker(args.weights, args.imgsz, args.conf)
+        if args.tracker == "speed":
+            track_fn = make_speed_tracker(args.weights, args.imgsz, args.conf, meta["speed_px_per_frame"] * (1 + args.speed_error))
+        else:
+            track_fn = make_yolo_tracker(args.weights, args.imgsz, args.conf)
         events, n_frames, processed = process_video(video, track_fn, args.stride, args.line_y)
         truth = truth_events_cls(meta["defects"], args.line_y, meta["speed_px_per_frame"], n_frames)
         cam_data[f"cam{cam}"] = {"truth": truth, "events": events, "n_frames": n_frames}
         print(f"cam{cam}: {processed}/{n_frames} frames processed, true {len(truth)}, counted {len(events)}", flush=True)
 
     # keep the raw events so results can be re-scored without re-running YOLO
-    raw = OUT / f"tracking_events_stride{args.stride}.json"
+    suffix = "" if args.tracker == "bytetrack" else f"_{args.tracker}"
+    if args.tracker == "speed" and args.speed_error:
+        suffix += f"_err{args.speed_error:+.2f}"
+    raw = OUT / f"tracking_events_stride{args.stride}{suffix}.json"
     raw.write_text(json.dumps({c: {"events": d["events"], "truth": d["truth"], "n_frames": d["n_frames"]}
                                for c, d in cam_data.items()}))
 
     tols = sorted(set(TOLERANCES) | {args.tol})
     res = score_cameras(cam_data, tols, args.tol)
 
-    csv_path = OUT / f"tracking_eval_stride{args.stride}.csv"
+    csv_path = OUT / f"tracking_eval_stride{args.stride}{suffix}.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tolerance_frames", "tp", "fp", "fn", "precision", "recall", "f1"])
@@ -102,7 +125,8 @@ def main() -> None:
             pr, rc, f1 = prf(tp, fp, fn)
             w.writerow([t, tp, fp, fn, f"{pr:.3f}", f"{rc:.3f}", f"{f1:.3f}"])
 
-    print(f"\n=== stride={args.stride}  line_y={args.line_y} ===")
+    err = f"  speed_error={args.speed_error:+.0%}" if args.tracker == "speed" else ""
+    print(f"\n=== tracker={args.tracker}  stride={args.stride}  line_y={args.line_y}{err} ===")
     print("\nSensitivity to matching tolerance (all cameras):")
     print(f"{'tol(frames)':>11}{'TP':>6}{'FP':>5}{'FN':>5}{'prec':>7}{'recall':>8}{'F1':>6}")
     for t in tols:
