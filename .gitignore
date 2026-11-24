@@ -9,3 +9,5 @@ datasets/
 models/
 tools/
 videos/
+*.db
+calibration/photos/
