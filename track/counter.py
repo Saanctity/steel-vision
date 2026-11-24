@@ -6,6 +6,8 @@ centre y_c is at image row  y_c - speed * frame_index.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 class LineCounter:
     """Counts each track ID once, when its centre crosses line_y moving upward.
@@ -14,8 +16,9 @@ class LineCounter:
     line, so counts are not delayed by the sampling stride.
     """
 
-    def __init__(self, line_y: float):
+    def __init__(self, line_y: float, on_count: Callable[[int, float], None] | None = None):
         self.line_y = line_y
+        self.on_count = on_count   # called as on_count(track_id, crossing_frame) for every new count
         self._last: dict[int, tuple[int, float]] = {}  # track id -> (frame_idx, cy)
         self._counted: set[int] = set()
         self.events: list[float] = []  # (interpolated) frame index of each count
@@ -31,7 +34,10 @@ class LineCounter:
             if prev_y > self.line_y >= cy:
                 frac = (prev_y - self.line_y) / (prev_y - cy)
                 self._counted.add(tid)
-                self.events.append(prev_idx + frac * (frame_idx - prev_idx))
+                crossing = prev_idx + frac * (frame_idx - prev_idx)
+                self.events.append(crossing)
+                if self.on_count is not None:
+                    self.on_count(tid, crossing)
 
 
 def truth_events_cls(defects: list[dict], line_y: float, speed: float, n_frames: int) -> list[tuple[float, str]]:

@@ -9,6 +9,7 @@ slowly and a small defect moves further than its own height between samples.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from classical.pipeline import iou
 
@@ -18,6 +19,7 @@ class _Track:
     id: int
     box: tuple
     last_idx: int
+    label: Any = None   # e.g. (class name, confidence) of the latest matched detection
 
 
 class SpeedTracker:
@@ -33,8 +35,13 @@ class SpeedTracker:
         x1, y1, x2, y2 = t.box
         return (x1, y1 + dy, x2, y2 + dy)
 
-    def update(self, idx: int, boxes) -> list[tuple[int, float, float]]:
-        """boxes: xyxy detections at frame idx. Returns [(track_id, cx, cy)] for tracks seen now."""
+    def label_of(self, track_id: int):
+        """Label attached to a live track by the latest update (None if unknown / forgotten)."""
+        return next((t.label for t in self._tracks if t.id == track_id), None)
+
+    def update(self, idx: int, boxes, labels=None) -> list[tuple[int, float, float]]:
+        """boxes: xyxy detections at frame idx; labels: optional list aligned with boxes.
+        Returns [(track_id, cx, cy)] for tracks seen now."""
         preds = [self._predict(t, idx) for t in self._tracks]
         pairs = sorted(((iou(p, b), ti, bi) for ti, p in enumerate(preds) for bi, b in enumerate(boxes)),
                        reverse=True)
@@ -48,9 +55,11 @@ class SpeedTracker:
             used_b.add(bi)
             self._tracks[ti].box = tuple(boxes[bi])
             self._tracks[ti].last_idx = idx
+            if labels is not None:
+                self._tracks[ti].label = labels[bi]
         for bi, b in enumerate(boxes):
             if bi not in used_b:
-                self._tracks.append(_Track(self._next_id, tuple(b), idx))
+                self._tracks.append(_Track(self._next_id, tuple(b), idx, labels[bi] if labels is not None else None))
                 self._next_id += 1
         # forget tracks not seen for too long, or whose predicted box has left the image
         self._tracks = [t for t in self._tracks
