@@ -7,13 +7,16 @@ and PostgreSQL (docker compose). Pick the database with DATABASE_URL, e.g.
 Run locally (from repo root):
     python -m uvicorn api.main:app --reload
 Interactive docs: http://127.0.0.1:8000/docs
+Operator dashboard: http://127.0.0.1:8000/
 """
 from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import DateTime, Float, Integer, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -113,6 +116,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
         by_class = dict(db.execute(select(Event.defect_class, func.count()).group_by(Event.defect_class)).all())
         by_camera = dict(db.execute(select(Event.camera, func.count()).group_by(Event.camera)).all())
         return {"total": sum(by_class.values()), "by_class": by_class, "by_camera": by_camera}
+
+    dashboard_file = Path(__file__).parent / "static" / "dashboard.html"
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/dashboard", include_in_schema=False)
+    def dashboard():
+        return FileResponse(dashboard_file, media_type="text/html")
 
     return app
 

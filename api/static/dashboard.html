@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>steel-vision operator view</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#1c2330; --muted:#6b7585; --line:#e3e6eb; --accent:#2f6fed; --ok:#1f9d55; --bad:#d64545; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161d; --card:#1b212b; --text:#e6e9ef; --muted:#97a1b3; --line:#2a3240; --accent:#6c9cff; --ok:#3ccf7a; --bad:#ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; background:var(--card); border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; }
+  #status { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; }
+  #dot { width:11px; height:11px; border-radius:50%; background:var(--muted); }
+  #dot.ok { background:var(--ok); } #dot.bad { background:var(--bad); }
+  main { padding:20px 22px; max-width:1100px; margin:0 auto; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .kpi .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .kpi .value { font-size:30px; font-weight:650; margin-top:2px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; margin-bottom:18px; }
+  h2 { font-size:14px; margin:0 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .bar-row { display:grid; grid-template-columns:130px 1fr 40px; align-items:center; gap:8px; margin:6px 0; font-size:14px; }
+  .bar { height:12px; background:var(--line); border-radius:6px; overflow:hidden; }
+  .bar > span { display:block; height:100%; background:var(--accent); width:0; transition:width .3s; }
+  .empty { color:var(--muted); padding:8px 0; }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>steel-vision &middot; operator view</h1>
+  <div id="status"><span id="dot"></span><span id="statusText">connecting&hellip;</span></div>
+</header>
+<main>
+  <section class="kpis">
+    <div class="card kpi"><div class="label">Defects counted</div><div class="value" id="kTotal">&ndash;</div></div>
+    <div class="card kpi"><div class="label">Last 60 seconds</div><div class="value" id="kRecent">&ndash;</div></div>
+    <div class="card kpi"><div class="label">Cameras reporting</div><div class="value" id="kCams">&ndash;</div></div>
+    <div class="card kpi"><div class="label">Latest defect</div><div class="value" id="kLast" style="font-size:20px">&ndash;</div></div>
+  </section>
+  <section class="grid">
+    <div class="card"><h2>By defect class</h2><div id="classBars"></div></div>
+    <div class="card"><h2>By camera</h2><div class="scroll"><table><thead><tr><th>Camera</th><th class="num">Defects</th></tr></thead><tbody id="camRows"></tbody></table></div></div>
+  </section>
+  <section class="card">
+    <h2>Latest events</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Time</th><th>Camera</th><th>Defect</th><th class="num">Confidence</th><th class="num">Track</th></tr></thead>
+      <tbody id="eventRows"></tbody>
+    </table></div>
+  </section>
+</main>
+<script>
+"use strict";
+const REFRESH_MS = 2000;
+
+// ---- pure helpers (kept free of the DOM so they are easy to test) ----
+function countRecent(events, nowMs, windowMs) {
+  return events.filter(e => nowMs - Date.parse(e.ts) <= windowMs).length;
+}
+function sortedEntries(obj) {
+  return Object.entries(obj || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+function formatConfidence(c) {
+  return c === null || c === undefined ? "\u2013" : c.toFixed(2);
+}
+
+// ---- DOM helpers: data is untrusted text, so it is only ever written with textContent ----
+function cell(text, cls) { const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; return td; }
+function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+function render(stats, events) {
+  document.getElementById("kTotal").textContent = stats.total;
+  document.getElementById("kRecent").textContent = countRecent(events, Date.now(), 60000);
+  document.getElementById("kCams").textContent = Object.keys(stats.by_camera).length;
+  document.getElementById("kLast").textContent = events.length ? new Date(events[0].ts).toLocaleTimeString() : "\u2013";
+
+  const bars = document.getElementById("classBars"); clear(bars);
+  const classes = sortedEntries(stats.by_class);
+  const max = classes.length ? classes[0][1] : 1;
+  if (!classes.length) { const d = document.createElement("div"); d.className = "empty"; d.textContent = "No defects yet"; bars.appendChild(d); }
+  for (const [name, n] of classes) {
+    const row = document.createElement("div"); row.className = "bar-row";
+    const label = document.createElement("span"); label.textContent = name;
+    const bar = document.createElement("div"); bar.className = "bar";
+    const fill = document.createElement("span"); fill.style.width = (100 * n / max) + "%"; bar.appendChild(fill);
+    const count = document.createElement("span"); count.textContent = n; count.style.textAlign = "right";
+    row.append(label, bar, count); bars.appendChild(row);
+  }
+
+  const cams = document.getElementById("camRows"); clear(cams);
+  for (const [name, n] of sortedEntries(stats.by_camera).sort((a, b) => a[0].localeCompare(b[0]))) {
+    const tr = document.createElement("tr"); tr.append(cell(name), cell(n, "num")); cams.appendChild(tr);
+  }
+
+  const rows = document.getElementById("eventRows"); clear(rows);
+  for (const e of events.slice(0, 15)) {
+    const tr = document.createElement("tr");
+    tr.append(cell(new Date(e.ts).toLocaleTimeString()), cell(e.camera), cell(e.defect_class),
+              cell(formatConfidence(e.confidence), "num"), cell(e.track_id, "num"));
+    rows.appendChild(tr);
+  }
+  if (!events.length) { const tr = document.createElement("tr"); const td = cell("No events yet"); td.colSpan = 5; td.className = "empty"; tr.appendChild(td); rows.appendChild(tr); }
+}
+
+function setStatus(ok, detail) {
+  document.getElementById("dot").className = ok ? "ok" : "bad";
+  document.getElementById("statusText").textContent = ok ? "live \u00b7 updated " + new Date().toLocaleTimeString() : "API unreachable" + (detail ? " (" + detail + ")" : "");
+}
+
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    const [stats, events] = await Promise.all([getJSON("/stats"), getJSON("/events?limit=200")]);
+    render(stats, events);
+    setStatus(true);
+  } catch (err) {
+    setStatus(false, err.message);
+  }
+}
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

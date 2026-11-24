@@ -53,4 +53,19 @@ def test_validation_rejects_bad_input():
     assert c.post("/events", json=_event(confidence=1.5)).status_code == 422             # out of range
     assert c.post("/events", json=_event(frame=-1)).status_code == 422                   # negative frame
     assert c.get("/events", params={"limit": 0}).status_code == 422
-    assert c.get("/stats").json()["total"] == 0                                          # nothing was stored
+    assert c.get("/stats").json()["total"] == 0    
+
+
+
+def test_dashboard_is_served_on_root_and_dashboard_paths():
+    c = _client()
+    for path in ("/", "/dashboard"):
+        r = c.get(path)
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+        assert "steel-vision" in r.text and "/stats" in r.text and "/events?limit=" in r.text
+    assert c.get("/health").status_code == 200          # the API routes still work next to it
+
+
+def test_dashboard_never_injects_data_as_html():
+    html = _client().get("/").text
+    assert "innerHTML" not in html                      # event text is untrusted: textContent only                                      # nothing was stored
