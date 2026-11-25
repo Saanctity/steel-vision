@@ -1,0 +1,47 @@
+# Event log (PostgreSQL + API + dashboard) and the simulated PLC.
+#
+#   docker compose up --build
+#   dashboard: http://localhost:8000/      API docs: http://localhost:8000/docs
+#   PLC (Modbus TCP): localhost:5020
+#
+# The vision runner, RTSP server and simulated cameras still run on the host and
+# talk to these published ports (see README).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: steel
+      POSTGRES_PASSWORD: steel          # demo credentials: change before any real use
+      POSTGRES_DB: steelvision
+    ports:
+      - "127.0.0.1:5432:5432"            # host-only, so the PostgreSQL tests can reach it
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U steel -d steelvision"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+psycopg://steel:steel@db:5432/steelvision
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  plc:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    command: ["python", "-m", "plc.sim_plc", "--host", "0.0.0.0", "--port", "5020"]
+    ports:
+      - "5020:5020"
+
+volumes:
+  pgdata:

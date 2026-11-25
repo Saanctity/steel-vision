@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.db
+data/
+datasets/
+models/
+videos/
+outputs/
+tools/
+docs/
+tests/

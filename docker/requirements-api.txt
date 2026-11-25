@@ -1,0 +1,6 @@
+# Only what the API and the simulated PLC need (versions are the ones the tests ran with)
+fastapi==0.165.0
+uvicorn==0.54.0
+SQLAlchemy==2.1.9
+psycopg[binary]==3.3.9
+pymodbus==3.16.2

@@ -13,6 +13,7 @@ is also how a real SCADA system would see this PLC.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import threading
@@ -41,7 +42,8 @@ class SimPLC:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._server: ModbusTcpServer | None = None
         self._ready = threading.Event()
-        self._reader = ModbusTcpClient(host, port=port, timeout=2)
+        # 0.0.0.0 means "listen on every interface"; to connect to ourselves use loopback
+        self._reader = ModbusTcpClient("127.0.0.1" if host in ("", "0.0.0.0") else host, port=port, timeout=2)
         self._read_lock = threading.Lock()
 
     # -- state, as seen over the wire -------------------------------------
@@ -91,8 +93,12 @@ class SimPLC:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 inside a container")
+    ap.add_argument("--port", type=int, default=5020)
+    args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
-    plc = SimPLC()
+    plc = SimPLC(host=args.host, port=args.port)
     plc.start()
     print(f"Simulated PLC listening on {plc.host}:{plc.port}  (Ctrl+C to stop)", flush=True)
     prev_c, prev_r = plc.coils(), plc.registers()
