@@ -8,3 +8,7 @@ uvicorn
 sqlalchemy
 httpx
 pymodbus==3.16.2
+ultralytics
+onnx
+onnxruntime
+lap
